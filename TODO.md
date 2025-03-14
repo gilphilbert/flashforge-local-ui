@@ -1,0 +1,5 @@
+- Only take control when it's needed. Logout when no longer needed.
+- Pretty up the UI
+- Fan control
+- Move printhead?
+- Get images/videos from the printer?

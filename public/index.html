@@ -1,0 +1,520 @@
+<!-- https://latestintech.com/ankermake-m5c-3d-printer-review/ -->
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.css">
+    <!--<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/dark-mode-switcher@0.0.1/dist/dark.min.js"></script>-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/orbitcss/css/orbit.min.css" />
+
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/typescript/5.7.3/typescript.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+
+<script>
+document.addEventListener('alpine:init', () => {
+  Alpine.data('stuff', () => ({
+    progressPercent: 0,
+    printerInfo: {
+      model: "",
+      serial: "",
+      bed: {},
+      ip: ''
+    },
+    temperatures: {
+      hotendLeft: { current: 0, target: 0 },
+      hotendRight: { current: 0, target: 0 },
+      bed: { current: 0, target: 0 }
+    },
+    progress: {
+      layers: { current: 0, total: 0 },
+      bytes: { current: 0, total: 0 }
+    },
+    status: {
+      machinestatus: '',
+      movemode: '',
+      led: 0,
+      currentfile: '',
+      status: { s: 0, l: 0, j: 0, f: 0 }
+    },
+    uiSettings: {
+      videoStream: '',
+      moveDistance: 1,
+      infoModal: 0,
+      filesModal: 0,
+      preheatModal: 0,
+      selectedFile: -1
+    },
+    gcodeFiles: [
+    ],
+    init() {
+      const socket = new WebSocket('ws://' + window.location.host);
+
+      socket.onmessage = (event) => {
+        const raw = JSON.parse(event.data)
+        const key = Object.keys(raw)[0] //should only ever be one key per response
+        const data = raw[key]
+        switch(key) {
+          case 'info':
+            this.printerInfo.model = data.type
+            this.printerInfo.serial = data.serial
+            this.printerInfo.firmware = data.firmware
+            this.printerInfo.bed = data.bed
+            this.printerInfo.toolcount = data.toolcount
+            this.printerInfo.macaddress = data.macaddress
+            if (this.printerInfo.ip === '') this.printerInfo.ip = data.ip
+            break
+          case 'status':
+            console.log(data)
+            this.status.machinestatus = data.machinestatus
+            this.status.currentfile = data.currentfile
+            this.status.led = data.led
+            break
+          case 'progress':
+            this.progress.layers.current = data.layers.current
+            this.progress.layers.total = data.layers.total
+            this.progress.bytes.current = data.bytes.current
+            this.progress.bytes.total = data.bytes.total
+            break
+          case 'temperatures':
+            this.temperatures.hotendLeft = data.hotend_left
+            this.temperatures.hotendRight = data.hotendRight
+            this.temperatures.bed = data.bed
+            break
+          case 'files':
+            this.gcodeFiles = []
+            data.forEach(file => {
+              this.gcodeFiles.push({ filename: file.substring(file.indexOf('/data/') + 6), path: file })
+            })
+            this.uiSettings.filesModal = 1
+            break
+          default:
+              console.log(data)
+        }
+      }
+      fetch('/api/info').then(() => fetch('/api/status'))
+    },
+    setDistance(e) {
+      const children = e.target.parentNode.children
+      for (let i = 0; i < children.length; i++) {
+        if (children[i] == e.target) {
+          children[i].classList.add('is-primary')
+          children[i].classList.remove('is-light')
+        } else {
+          children[i].classList.add('is-light')
+          children[i].classList.remove('is-primary')
+        } 
+      }
+      this.uiSettings.moveDistance = e.target.dataset['distance']
+    },
+    printStatus() {
+      const _statuses = {
+        'READY': 'Idle',
+        'BUILDING_FROM_SD': 'Printing',
+        'BUILDING_COMPLETED': 'Finished',
+        'STATE_BUILDING': 'Printing',
+        'STATE_SD_PAUSED': 'Paused',
+        'STATE_HOMING': 'Homing',
+        'BUSY': 'Busy',
+        'STATE_WAIT_ON_TEMP': 'Waiting for temp'
+      }
+      if (Object.keys(_statuses).includes(this.status.machinestatus))
+        return _statuses[this.status.machinestatus]
+      return this.status.machinestatus
+    },
+    loadFiles() {
+      fetch('/api/files')
+    },
+    printFile() {
+      fetch('/api/print/' + encodeURIComponent(this.gcodeFiles[this.uiSettings.selectedFile].path) )
+      this.uiSettings.selectedFile = -1
+    },
+    deleteFile() {
+      fetch('/api/delete/' + encodeURIComponent(this.gcodeFiles[this.uiSettings.selectedFile].path) )
+      this.uiSettings.selectedFile = -1
+    },
+    moveTool(dir) {
+      fetch(`/api/setRelativePosition/${dir[0]}/${dir[1]}/${dir[2]}`)
+    },
+    moveToolxyHome() {
+      fetch('/api/homeXY')
+    },
+    moveToolzHome() {
+      fetch('/api/homeZ')
+    },
+    preheat(filament) {
+      fetch('/api/preheat/' + filament)
+      this.uiSettings.preheatModal = 0
+    },
+    extrude() {
+      fetch('/api/extrude')
+    },
+    retract() {
+      fetch('/api/retract')
+    },
+    toggleLED() {
+      fetch('/api/toggle_led', { method: 'put' })
+    }
+  }))
+})
+
+</script>
+
+<style>
+  html, body {
+    --theme-background-color: rgb(242, 242, 242);
+    --panel-bg: #fff;
+    color: var(--theme-font-color);
+    
+    --theme-body-font-family: "Outfit", serif;
+    --font-family: "Outfit", serif;
+    --theme-heading-font-family: "Outfit", serif;
+  }
+  html:root {
+    --theme-body-font-family: "Outfit", serif;
+    --font-family: "Outfit", serif;
+    --theme-heading-font-family: "Outfit", serif;
+  }
+  
+  .printericon {
+    width: 100px;
+  }
+  .box {
+    background: var(--panel-bg);
+    border-radius: 5px;
+    padding: 16px;
+    height: 100%;
+  }
+  .inline-block {
+    display: inline-block;
+  }
+  .sub-block {
+    padding-left: 10px;
+  }
+  .no-padding {
+    padding-bottom: 0;
+  }
+  .no-bottom-margin {
+    margin-bottom: 0;
+  }
+
+  html[data-theme="light"] .button.ms-white {
+    background-color: #fff;
+  }
+
+  progress[value].is-rounded {
+  border-radius: 10em;
+  }
+  progress[value].is-rounded::-webkit-progress-bar {
+    border-radius: 10em;
+  }
+  progress[value].is-rounded::-webkit-progress-value {
+    border-radius: 10em;
+  }
+  progress[value].is-rounded::-moz-progress-bar {
+    border-radius: 10em;
+  }
+  ion-icon {
+    font-size: 26px;
+  }
+  .files-table tr td:last-child {
+    width: 1%;
+    white-space: nowrap;
+  }
+  .files-table ion-icon {
+    font-size: 16px;
+  }
+  .files-table tbody {
+    max-height: 55vh;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    display: block;
+  }
+
+  .is-radio-hidden input[type=radio] {
+    display: none;
+  }
+  .is-radio-hidden label {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 10px 8px;
+    margin: 3px;
+    font-weight: normal;
+  }
+  .is-radio-hidden ion-icon {
+    margin-right: 5px;
+  }
+  .filecheck:checked + .filecheck-label {
+    font-weight: bold;
+    background-color: var(--color-light);
+    border-radius: 6px;
+    color: var(--color-primary);
+  }
+  .preheat-buttons button {
+    width:100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 18px;
+  }
+  .preheat-buttons .icons {
+    display: inline-flex;
+    align-items: center;
+  }
+  .preheat-buttons .icons ion-icon {
+    margin-left: 8px
+  }
+  .preheat-buttons button:hover span {
+    font-weight: 600;
+  }
+  .preheat-buttons button:hover {
+    color: var(--color-primary);
+  }
+  .is-inline-block {
+    display: inline-block;
+  }
+
+
+/*
+  .container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .row {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+  }
+  .column {
+    display: flex;
+    flex-direction: column
+  }
+  .column-25 {
+    width: 25%
+  }
+  .column-50 {
+    width: 50%
+  }
+    */
+  </style>
+</head>
+
+<body x-data="stuff" x-init="init">
+  <div class="container">
+    <div class="grid">
+      <div class="column">
+        <div class="has-dropdown is-hoverable">
+          <button class="button is-dark has-arrow is-rounded">
+            <span x-text="printerInfo.model"></span></small>
+          </button>
+          <ul class="dropdown">
+            <li class="dropdown__divider"></li>
+            <li class="dropdown__link"><a href="#">Add new printer</a></li>
+          </ul>
+        </div>
+        <button class="button is-rounded is-info" x-on:click="uiSettings.infoModal = 1"><ion-icon name="information-circle-outline"></ion-icon></button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="column is-4">
+        <div class="box" id="image-box">
+          <img x-bind:src="'http://' + printerInfo.ip + ':8080/?action=stream'">
+        </div>
+      </div>
+
+      <div class="column is-8">
+        <div class="box">
+          <div style="display: flex; flex-direction: row; align-items: center; height: 100%">
+              <img class="printericon" style="-ms-flex: 0 150px 0; flex: 0 150px 0; margin-right: 14px;" src="https://3d.nice-cdn.com/upload/image/product/large/default/flashforge-adventurer-5m-1-st-628142-en.png">
+              <div style="flex: auto;">
+                <h3 x-text="printStatus"></h3>
+                <p x-text="status.currentfile"></p>
+                <p x-show="progress.layers.total > 0" >Layer: <span x-text="progress.layers.current"></span></p>
+                <progress x-show="progress.layers.total > 0" class="progress is-rounded is-primary" x-bind:max="progress.bytes.total" x-bind:value="progress.bytes.current"></progress>
+              </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="column is-mobile-half">
+        <div class="box">
+          <div style="display: flex; flex-direction: row; align-items: center; height: 100%">
+            <div>
+              <h2><span x-text="temperatures.hotendLeft.current"></span> <small>&deg;C</small></h2>
+              <p>Hotend</p>  
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="column is-mobile-half">
+        <div class="box">
+          <div style="display: flex; flex-direction: row; align-items: center; height: 100%">
+            <div>
+              <h2><span x-text="temperatures.bed.current"></span> <small>&deg;C</small></h2>
+              <p>Bed</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div> <!-- /grid -->
+    <div class="grid">
+<!--
+       <div class="column is-4">
+         <div class="box">
+           <div>
+              <div class="is-addon-group is-rounded">
+                <a class="button is-primary" data-distance="1" x-on:click="setDistance">1mm</a>
+                <a class="button is-light" data-distance="5" x-on:click="setDistance">5mm</a>
+                <a class="button is-light" data-distance="10" x-on:click="setDistance">10mm</a>
+                <a class="button is-light" data-distance="30" x-on:click="setDistance">30mm</a>
+              </div>
+              <div class="grid">
+                <div class="column is-shrink is-mobile-6">
+                  <table>
+                    <tr>
+                      <td>X/Y</td>
+                      <td><button class="button is-rounded is-light" x-on:click="moveTool([0,uiSettings.moveDistance,0])"><ion-icon name="caret-up-outline"></ion-icon></button></td>
+                      <td></td>
+                    </tr>
+                    <tr>
+                      <td><button class="button is-rounded is-light" x-on:click="moveTool([0-uiSettings.moveDistance,0,0])"><ion-icon name="caret-back-outline"></ion-icon></button></td>
+                      <td><button class="button is-rounded is-light" x-on:click="moveToolxyHome"><ion-icon name="home-outline"></ion-icon></button></td>
+                      <td><button class="button is-rounded is-light" x-on:click="moveTool([uiSettings.moveDistance,0,0])"><ion-icon name="caret-forward-outline"></ion-icon></button></td>
+                    </tr>
+                    <tr>
+                      <td></div>
+                      <td><button class="button is-rounded is-light" x-on:click="moveTool([0,0-uiSettings.moveDistance,0])"><ion-icon name="caret-down-outline"></ion-icon></button></td>
+                      <td></div>
+                    </tr>
+                  </table>
+                </div>
+                <div class="column is-shrink is-mobile-6">
+                  <table>
+                    <tr><td>Z</td></td><td><button class="button is-rounded is-light" x-on:click="moveTool([0,0,0-uiSettings.moveDistance])"><ion-icon name="caret-up-outline"></ion-icon></button></td></tr>
+                    <tr><td></td></td><td><button class="button is-rounded is-light" x-on:click="moveToolzHome"><ion-icon name="home-outline"></ion-icon></button></td></tr>
+                    <tr><td></td><td><button class="button is-rounded is-light" x-on:click="moveTool([0,0,uiSettings.moveDistance])"><ion-icon name="caret-down-outline"></ion-icon></button></td></tr>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+       </div>
+       -->
+       <div class="column is-half">
+          <div class="box">
+            <p><strong>Actions</strong></p>
+            <button class="button is-primary is-rounded" x-on:click="loadFiles">Files</button>
+            <button class="button is-primary is-rounded" x-on:click="uiSettings.preheatModal = 1">Preheat</button>
+            <table>
+              <tr>
+                <td>LED&nbsp;</td><td><div class="is-switch is-rounded"><input type="checkbox" id="roundedSwitch" x-bind:checked="status.led" x-on:change="toggleLED"><label for="roundedSwitch"></label></div></td>
+              </tr>
+              <tr>
+                <td>Fans&nbsp;</td><td><div class="is-switch is-rounded"><input type="checkbox" id="roundedSwitch"><label for="roundedSwitch"></label></div></td>
+              </tr>
+            </table>
+            <button class="button is-primary is-rounded" x-on:click="extrude">Extrude</button>
+            <button class="button is-primary is-rounded" x-on:click="retract">Retract</button>
+          </div>
+      </div>
+      </div> <!-- /grid -->
+    
+  </div> <!-- /container -->
+  <div class="modal" x-bind:class="uiSettings.infoModal ? 'is-active' : ''">
+    <div class="modal__background"></div>
+    <div class="modal__content has-no-padding">
+      <div class="card">
+        <div class="card__header">
+          <h4>Printer information</h4>
+        </div>
+        <div class="card__content">
+          <table>
+            <tr><td>Model:</td><td x-text="printerInfo.model"></td></tr>
+            <tr><td>Serial:</td><td x-text="printerInfo.serial"></td></tr>
+            <tr><td>Firmware:</td><td x-text="printerInfo.firmware"></td></tr>
+            <tr><td>Build volume:</td><td><span x-text="printerInfo.bed.x"></span>*<span x-text="printerInfo.bed.y"></span>*<span x-text="printerInfo.bed.z"></span> (x*y*z)</td></tr>
+            <tr><td>MAC address:</td><td x-text="printerInfo.macaddress"></td></tr>
+            <tr><td>Tool count:</td><td x-text="printerInfo.toolcount"></td></tr>
+            <tr><td>IP address:</td><td x-text="printerInfo.ip"></td></tr>
+            </tr>
+          </table>
+        </div>
+        <div class="card__footer">
+          <button class="button" x-on:click="uiSettings.infoModal = 0">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal" x-bind:class="uiSettings.filesModal ? 'is-active' : ''">
+    <div class="modal__background"></div>
+    <div class="modal__content has-no-padding">
+      <div class="card">
+        <div class="card__header">
+          <h4>Printer files</h4>
+        </div>
+        <div class="card__content">
+          <div class="is-radio-hidden">
+            <template x-for="(file, index) in gcodeFiles">
+                <div>
+                  <input class="filecheck" type="radio" name="select-file" x-on:click="uiSettings.selectedFile = index" x-bind:value="index" x-bind:id="'file' + index">
+                  <label class="filecheck-label" x-bind:for="'file' + index">
+                    <ion-icon name="document-outline"></ion-icon>
+                    <span x-text="file.filename"></span>
+                  </label>
+                </div>
+            </template>
+          </div>
+        </div>
+        <div class="card__footer">
+          <button class="button is-rounded" x-on:click="uiSettings.filesModal = 0">Cancel</button>
+          <!--<button class="button is-danger is-rounded" x-on:click="deleteFile">Delete</button>-->
+          <button class="button is-success is-rounded" x-on:click="printFile">Print</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal" x-bind:class="uiSettings.preheatModal ? 'is-active' : ''">
+    <div class="modal__background"></div>
+    <div class="modal__content has-no-padding">
+      <div class="card">
+        <div class="card__header">
+          <h4>Preheat</h4>
+        </div>
+        <div class="card__content">
+          <div class="preheat-buttons">
+            <button class="button is-rounded" x-on:click="preheat('pla')">
+              <span class="is-inline-block">PLA/PLA+</span>
+              <div class="icons"><ion-icon name="thermometer-outline"></ion-icon>210&nbsp;<ion-icon class="bed-icon" name="bed-outline"></ion-icon>50</div>
+            </button>
+            <button class="button is-rounded" x-on:click="preheat('petg')">
+              <span class="is-inline-block">PETG</span>
+              <div class="icons"><ion-icon name="thermometer-outline"></ion-icon>240&nbsp;<ion-icon class="bed-icon" name="bed-outline"></ion-icon>80</div>
+            </button>
+            <button class="button is-rounded" x-on:click="preheat('tpu')">
+              <span class="is-inline-block">TPU</span>
+              <div class="icons"><ion-icon name="thermometer-outline"></ion-icon>220&nbsp;<ion-icon class="bed-icon" name="bed-outline"></ion-icon>60</div>
+            </button>
+            <button class="button is-rounded" x-on:click="preheat('abs')">
+              <span class="is-inline-block">ABS</span>
+              <div class="icons"><ion-icon name="thermometer-outline"></ion-icon>240<ion-icon class="bed-icon" name="bed-outline"></ion-icon>90</div>
+            </button>
+          </div>
+        </div>
+        <div class="card__footer">
+          <button class="button is-rounded" x-on:click="uiSettings.preheatModal = 0">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
