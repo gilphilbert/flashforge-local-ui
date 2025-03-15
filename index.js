@@ -59,24 +59,16 @@ app.get('/api/print/:fullPath', (req, res) => {
   ffapi.files.print(req.params.fullPath)
 })
 
+//app.get('/api/delete/:fullPath', (req, res) => {
+//  console.log(req.params.fullPath)
+//  ffapi.files.delete(req.params.fullPath)
+//})
+
 app.get('/api/preheat/:filament', (req, res) => {
-  switch(req.params.filament) {
-    case 'pla':
-      ffapi.setTemp.hotend(210)
-      ffapi.setTemp.bed(60)
-      break
-    case 'petg':
-      ffapi.setTemp.hotend(240)
-      ffapi.setTemp.bed(80)
-      break
-    case 'tpu':
-      ffapi.setTemp.hotend(220)
-      ffapi.setTemp.bed(60)
-      break
-    case 'abs':
-      ffapi.setTemp.hotend(240)
-      ffapi.setTemp.bed(90)
-      break
+  const filament = req.params.filament
+  const filaments = ['abs', 'petg', 'pla', 'tpu', 'off']
+  if (filaments.includes(filament)) {
+   ffapi.printer.preheat(filament)
   }
   res.send('{ status: "done" }')
 })

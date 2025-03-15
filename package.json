@@ -10,6 +10,7 @@
   "author": "gilphilbert",
   "license": "ISC",
   "dependencies": {
+    "death": "^1.1.0",
     "express": "^4.21.2",
     "express-ws": "^5.0.2",
     "settings-store": "^1.4.1",

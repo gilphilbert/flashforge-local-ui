@@ -450,7 +450,7 @@ document.addEventListener('alpine:init', () => {
           </table>
         </div>
         <div class="card__footer">
-          <button class="button" x-on:click="uiSettings.infoModal = 0">Cancel</button>
+          <button class="button is-rounded" x-on:click="uiSettings.infoModal = 0">Close</button>
         </div>
       </div>
     </div>
@@ -477,7 +477,7 @@ document.addEventListener('alpine:init', () => {
         </div>
         <div class="card__footer">
           <button class="button is-rounded" x-on:click="uiSettings.filesModal = 0">Cancel</button>
-          <!--<button class="button is-danger is-rounded" x-on:click="deleteFile">Delete</button>-->
+          <button class="button is-danger is-rounded" x-on:click="deleteFile">Delete</button>
           <button class="button is-success is-rounded" x-on:click="printFile">Print</button>
         </div>
       </div>
@@ -508,10 +508,15 @@ document.addEventListener('alpine:init', () => {
               <span class="is-inline-block">ABS</span>
               <div class="icons"><ion-icon name="thermometer-outline"></ion-icon>240<ion-icon class="bed-icon" name="bed-outline"></ion-icon>90</div>
             </button>
+          </button>
+          <button class="button is-rounded" x-on:click="preheat('off')">
+            <span class="is-inline-block">Off</span>
+            <div class="icons"><ion-icon name="thermometer-outline"></ion-icon>0<ion-icon class="bed-icon" name="bed-outline"></ion-icon>0</div>
+          </button>
           </div>
         </div>
         <div class="card__footer">
-          <button class="button is-rounded" x-on:click="uiSettings.preheatModal = 0">Cancel</button>
+          <button class="button is-rounded" x-on:click="uiSettings.preheatModal = 0">Close</button>
         </div>
       </div>
     </div>

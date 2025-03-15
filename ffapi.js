@@ -10,10 +10,32 @@ let pauseCommands = false
 
 const net = require('net')
 
+var ON_DEATH = require('death'); //this is intentionally ugly
+
 var intervalConnect = false
 const socket = new net.Socket()
 
+//keeps the connection to the printer alive and provides regular updates
 let intervalKeepAlive = false
+
+//used to fire callbacks after control is obtained
+let controlCallback = false
+
+//this is the "send" callback to send out messages to the attached user (from Express)
+let callback;
+
+//set the callback (need to publish this function)
+const setCallback = (cb) => {
+  callback = cb;
+}
+
+//send function (calls thw callback...)
+const send = (data) => {
+  if (callback) {
+    callback(JSON.stringify(data))
+  }
+}
+
 
 socket.on('connect', () => {
   clearIntervalConnect()
@@ -26,8 +48,9 @@ socket.on('connect', () => {
      get.progress()
     }
   }, 1000);
-
 }).on('data', (buf) => {
+  console.log(buf.toString())
+
   let lines = buf.toString().split('\r\n')
   while (lines.length > 0) {
     cmdLine = lines.shift().split(' ')
@@ -115,12 +138,22 @@ socket.on('connect', () => {
           //trim the nonsense from the files and resolve
           send({ files: _files.map(file => file.trim().substring(file.trim().indexOf('/data'))) })
           break
-        case commands.get_control:
-          //response = lines[0]
-          //if (response === "Control failed.") {
-          //  sendCommand(commands.logout)
-          //  sendCommand(commands.get_control)
-          //}
+        case commands.get_control.substring(0, commands.get_control.indexOf(' ')):
+          response = lines[0]
+          if (response !== "Control failed.") {
+            if (controlCallback) {
+              console.log("found callback, calling...")
+              controlCallback()
+              console.log("clearing callback")
+              controlCallback = false
+            }
+            //console.log("logging out")
+            sendCommand(commands.logout)
+          } else {
+            //we should probably count retries here and not just try forever
+            sendCommand(commands.logout)
+            sendCommand(commands.get_control)
+          }
           break
       }
     }
@@ -158,14 +191,6 @@ function clearIntervalConnect() {
 
 connect()
 
-let callback;
-
-const send = (data) => {
-  if (callback) {
-    callback(JSON.stringify(data))
-  }
-}
-
 commands = {
   //get info
   progress: 'M27',
@@ -174,7 +199,7 @@ commands = {
   status: 'M119',
   files: 'M661',
 
-  get_control: 'M601 S0',
+  get_control: 'M601 S1',
   logout: 'M602',
 
   //set stuff
@@ -218,27 +243,29 @@ commands = {
 // - The last four bytes should be a big endian CRC32 of the data for that packet
 // The last packet has to be padded with 0x00 until the data length is 4096 bytes. The CRC is for the data without padding.
 
-function sendCommand(cmd, args = '', control = false) {
-  if (control) {
-    socket.write('~' + commands.get_control)
-  }
+function sendCommand(cmd) {
+  //if (control) {
+  //  socket.write('~' + commands.get_control)
+  //}
 
-  let retVal = ""
-  if(typeof cmd === "string") {
-    retVal = socket.write('~' + cmd + (args != '' ? ' ' + args : '')  + '\r\n')
-  }
-  if (typeof cmd === "array") {
-    //loop through commands
-    for (let i = 0; i < cmd.length; i++) {
-      retVal = socket.write('~' + cmd + (args != '' ? ' ' + args : '')  + '\r\n')
-    }
-  }
+  console.log("~" + cmd + "\r\n")
+
+  //let retVal = ""
+  //if(typeof cmd === "string") {
+    retVal = socket.write("~" + cmd + "\r\n")
+  //}
+  //if (typeof cmd === "array") {
+  //  //loop through commands
+  //  for (let i = 0; i < cmd.length; i++) {
+  //    retVal = socket.write('~' + cmd + (args != '' ? ' ' + args : '')  + '\r\n')
+  //  }
+  //}
   //console.log(typeof cmd)
 
 
-  if (control) {
-    socket.write('~' + commands.logout)
-  }
+  //if (control) {
+  //  socket.write('~' + commands.logout)
+  //}
 
   return retVal
 }
@@ -296,37 +323,86 @@ const set = {
 //both of these require control access
 const setTemp = {
   hotend: (targetTemp) => {
-    sendCommand(commands.tool_temperature, 'T0 S' + targetTemp, true)
+    console.log('setting callback for tool temperature')
+    controlCallback = () => {
+      console.log('setting tool temperature')
+      sendCommand(`${commands.tool_temperature} S${targetTemp}`)
+    }
+    console.log('requesting control')
+    sendCommand(commands.get_control) 
   },
   bed: (targetTemp) => {
-    sendCommand(commands.bed_temperature, 'S' + targetTemp, true)
+    controlCallback = () => {
+      console.log('setting bed temperature')
+      sendCommand(commands.bed_temperature + ` S${targetTemp}`)
+    }
+    sendCommand(commands.get_control)
   }
 }
 
 //both of these require control access
 const extrude = function() {
   //how to send both of these in one go?
-  sendCommand(commands.positioning_relative)
-  sendCommand(commands.extrude)
+  controlCallback = () => {
+    sendCommand(commands.positioning_relative)
+    sendCommand(commands.extrude)  
+  }
+  sendCommand(commands.get_control) 
 }
 const retract = function() {
-  sendCommand(commands.positioning_relative)
-  sendCommand(commands.retract)
+  controlCallback = () => {
+    sendCommand(commands.positioning_relative)
+    sendCommand(commands.retract)  
+  }
+  sendCommand(commands.get_control) 
 }
 
 //both of these require control access
 const files = {
   print: (fullPath) => {
-    sendCommand(commands.select_file, fullPath, true)
+    controlCallback = () => {
+      sendCommand(commands.select_file + ' ' + fullPath)
+    }
+    sendCommand(commands.get_control)
   },
-  delete: (fullpath) => {
-    sendCommand(commands.delete_file, '0:/user' + fullpath, true)
-    console.log("deleting file")
+  delete: (fullpath) => { //non functional
+    controlCallback = () => {
+      sendCommand(commands.delete_file + ' 0:/user' + fullpath) // '0:/user'
+    }
+    sendCommand(commands.get_control)
   }
 }
 
-const setCallback = (cb) => {
-  callback = cb;
+const printer = {
+  preheat: function (filament) {
+    let bed = 0
+    let hotEnd = 0
+    switch (filament) {
+      case 'abs':
+        hotEnd = 240
+        bed = 90
+        break
+      case 'petg':
+        hotEnd = 240
+        bed = 80
+        break
+      case 'pla':
+        hotEnd = 210
+        bed = 50
+        break
+      case 'tpu':
+        hotEnd = 220
+        bed = 60
+        break
+    }
+    console.log('setting callback for preheat')
+    controlCallback = () => {
+      //sendCommand(`${commands.tool_temperature} S${hotEnd}`)
+      sendCommand(`${commands.bed_temperature} S${bed}`)
+    }
+    console.log('requesting control')
+    sendCommand(commands.get_control) 
+  }
 }
 
 module.exports = {
@@ -337,7 +413,8 @@ module.exports = {
   setTemp,
   setCallback,
   extrude,
-  retract
+  retract,
+  printer
 }
 
 /* states
@@ -352,3 +429,10 @@ module.exports = {
 	STATE_WAIT_ON_TEMP = 7
 
 */
+ON_DEATH(function(signal, err) {
+  sendCommand(commands.logout)
+  //this is super simple, but the printer usually responds in under 500ms, so this should be fine
+  setTimeout(() => {
+    process.exit()
+  }, 500)
+})
