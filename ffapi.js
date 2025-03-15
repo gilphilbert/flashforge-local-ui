@@ -1,4 +1,11 @@
-const printerIp = "192.168.50.7"
+//const printerIp = "192.168.50.7"
+let printerIP = ""
+
+let connectionStats = {
+  controlRequested: false,
+  lastResponse: 0,
+  lastResponseInterval: false
+}
 
 let current = {
   machineStatus: '',
@@ -6,12 +13,10 @@ let current = {
   currentFile: '',
 }
 
-let pauseCommands = false
-
 const net = require('net')
-
 var ON_DEATH = require('death'); //this is intentionally ugly
 
+//interval handler for reconnecting
 var intervalConnect = false
 const socket = new net.Socket()
 
@@ -37,21 +42,34 @@ const send = (data) => {
 }
 
 
+//settings
+const settings = require("settings-store")
+settings.init({
+  appName:       "FFLocalUI", //required,
+  publisherName: "gilphilbert", //optional
+  reverseDNS:    "com.gilphilbert.ffui" //required for macOS
+})
+
+
 socket.on('connect', () => {
   clearIntervalConnect()
   console.log("Connected to printer")
   
   //sendCommand(commands.get_control, 'S0')
 
+  connectionStats.lastResponse = Date.now()
   intervalKeepAlive = setInterval(() => {
-    if (!pauseCommands) {
-     get.progress()
+    get.progress()
+    if (Date.now() - connectionStats.lastResponse > 5000) {
+      console.log("haven't heard from printer in 5 seconds, restarting connection")
+      socket.end()
     }
   }, 1000);
 }).on('data', (buf) => {
-  console.log(buf.toString())
+  connectionStats.lastResponse = Date.now()
 
   let lines = buf.toString().split('\r\n')
+
   while (lines.length > 0) {
     cmdLine = lines.shift().split(' ')
 
@@ -69,7 +87,7 @@ socket.on('connect', () => {
           _machine['bed']['z'] = lines.shift().split(':')[3]
           _machine['toolcount'] = lines.shift().split(':')[1].trim()
           _machine['macaddress'] = lines.shift().trim().split(':').slice(1).join(':')
-          _machine['ip'] = printerIp
+          _machine['ip'] = printerIP
           lines.shift() //'ok'
           lines.shift() //''
           send({ info: _machine })
@@ -106,13 +124,11 @@ socket.on('connect', () => {
           lines.shift() //''
           send({ progress: _progress })
 
-          if (!pauseCommands) {
-            get.temperatures()
+          get.temperatures()
 
-            if (current.currentBytes != _progress.bytes.current) {
-              current.currentBytes = _progress.bytes.current
-              setTimeout(() => get.status(), 100) //wait 100ms then request status, prevents colliding with temperatures
-            }
+          if (current.currentBytes != _progress.bytes.current) {
+            current.currentBytes = _progress.bytes.current
+            setTimeout(() => get.status(), 100) //wait 100ms then request status, prevents colliding with temperatures
           }
         break
         case commands.temperatures:
@@ -139,6 +155,7 @@ socket.on('connect', () => {
           send({ files: _files.map(file => file.trim().substring(file.trim().indexOf('/data'))) })
           break
         case commands.get_control.substring(0, commands.get_control.indexOf(' ')):
+          console.log(lines)
           response = lines[0]
           if (response !== "Control failed.") {
             if (controlCallback) {
@@ -155,6 +172,8 @@ socket.on('connect', () => {
             sendCommand(commands.get_control)
           }
           break
+        default:
+          console.log(lines)
       }
     }
   }
@@ -175,7 +194,7 @@ socket.on('connect', () => {
 })
 
 function connect() {
-  socket.connect({ port: 8899, host: printerIp })
+  socket.connect({ port: 8899, host: printerIP })
 }
 
 function launchIntervalConnect() {
@@ -189,7 +208,11 @@ function clearIntervalConnect() {
   intervalConnect = false
 }
 
-connect()
+function setIP(ipaddress) {
+  printerIP = ipaddress
+}
+
+//connect()
 
 commands = {
   //get info
@@ -243,31 +266,18 @@ commands = {
 // - The last four bytes should be a big endian CRC32 of the data for that packet
 // The last packet has to be padded with 0x00 until the data length is 4096 bytes. The CRC is for the data without padding.
 
-function sendCommand(cmd) {
-  //if (control) {
-  //  socket.write('~' + commands.get_control)
-  //}
-
-  console.log("~" + cmd + "\r\n")
-
-  //let retVal = ""
-  //if(typeof cmd === "string") {
+function sendCommand(cmd, control) {
+  if (control) {
+    controlCallback = () => {
+      console.log("running actual command")
+      sendCommand(cmd)
+    }
+    console.log("requesting control")
+    socket.write('~' + commands.get_control)
+  } else {
     retVal = socket.write("~" + cmd + "\r\n")
-  //}
-  //if (typeof cmd === "array") {
-  //  //loop through commands
-  //  for (let i = 0; i < cmd.length; i++) {
-  //    retVal = socket.write('~' + cmd + (args != '' ? ' ' + args : '')  + '\r\n')
-  //  }
-  //}
-  //console.log(typeof cmd)
-
-
-  //if (control) {
-  //  socket.write('~' + commands.logout)
-  //}
-
-  return retVal
+    return retVal
+  }
 }
 
 const get = {
@@ -316,7 +326,12 @@ const move = {
 
 const set = {
   ledToggle: () => {
-    sendCommand(commands.led_control)
+    //controlCallback = () => {
+    //  sendCommand(commands.led_control)
+    //}
+    //console.log('requesting control')
+    //sendCommand(commands.get_control) 
+    sendCommand(commands.led_control, true)
   }
 }
 
@@ -362,6 +377,7 @@ const files = {
   print: (fullPath) => {
     controlCallback = () => {
       sendCommand(commands.select_file + ' ' + fullPath)
+      sendCommand(commands.start_print)
     }
     sendCommand(commands.get_control)
   },
@@ -414,7 +430,9 @@ module.exports = {
   setCallback,
   extrude,
   retract,
-  printer
+  printer,
+  connect,
+  setIP
 }
 
 /* states

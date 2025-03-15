@@ -279,30 +279,6 @@ document.addEventListener('alpine:init', () => {
   .is-inline-block {
     display: inline-block;
   }
-
-
-/*
-  .container {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .row {
-    display: flex;
-    flex-direction: row;
-    gap: 10px;
-  }
-  .column {
-    display: flex;
-    flex-direction: column
-  }
-  .column-25 {
-    width: 25%
-  }
-  .column-50 {
-    width: 50%
-  }
-    */
   </style>
 </head>
 
@@ -310,7 +286,7 @@ document.addEventListener('alpine:init', () => {
   <div class="container">
     <div class="grid">
       <div class="column">
-        <div class="has-dropdown is-hoverable">
+        <div class="has-dropdown is-hoverable" stlye="display: inline-block">
           <button class="button is-dark has-arrow is-rounded">
             <span x-text="printerInfo.model"></span></small>
           </button>
@@ -319,7 +295,7 @@ document.addEventListener('alpine:init', () => {
             <li class="dropdown__link"><a href="#">Add new printer</a></li>
           </ul>
         </div>
-        <button class="button is-rounded is-info" x-on:click="uiSettings.infoModal = 1"><ion-icon name="information-circle-outline"></ion-icon></button>
+        <button class="button is-rounded is-secondary" x-on:click="uiSettings.infoModal = 1" style="margin-top: 5px; display: inline-block"><span style="text-align: center; display: inline-block; height: 22px; width: 22px; border: 2px solid var(--font-color); border-radius: 50%; margin-top: 2px">i</span></button>
       </div>
     </div>
 

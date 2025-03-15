@@ -92,4 +92,7 @@ app.get('/api/setRelativePosition/:x/:y/:z', (req, res) => {
 })
 */
 
+ffapi.setIP("192.168.50.7")
+ffapi.connect()
+
 app.listen(3000);
